@@ -1,51 +1,65 @@
 import { Injectable } from '@angular/core';
-import Anthropic from '@anthropic-ai/sdk';
 import { environment } from '../environments/environment';
 
 @Injectable({
   providedIn: 'root'
 })
 export class ClaudeService {
-  private client: Anthropic;
+  private apiKey = environment.anthropicApiKey;
+  private apiUrl = 'https://api.anthropic.com/v1/messages';
   private documentContext: string = '';
   private conversationHistory: {role: 'user' | 'assistant', content: string}[] = [];
-
-  constructor() {
-    this.client = new Anthropic({
-      apiKey: environment.anthropicApiKey,
-      dangerouslyAllowBrowser: true
-    });
-  }
 
   setDocumentContext(text: string): void {
     this.documentContext = text;
     this.conversationHistory = [];
   }
 
-  clearHistory(): void {
-    this.conversationHistory = [];
-  }
-
   async sendMessageStream(message: string, onChunk: (chunk: string) => void): Promise<void> {
-    const systemPrompt = this.documentContext 
+    const systemPrompt = this.documentContext
       ? `Tu es un assistant qui répond aux questions basées sur ce document :\n\n${this.documentContext}`
       : 'Tu es un assistant utile et bienveillant.';
 
     this.conversationHistory.push({ role: 'user', content: message });
 
-    let fullResponse = '';
-
-    const stream = await this.client.messages.stream({
-      model: 'claude-haiku-4-5',
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: this.conversationHistory
+    const response = await fetch(this.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 1024,
+        system: systemPrompt,
+        stream: true,
+        messages: this.conversationHistory
+      })
     });
 
-    for await (const chunk of stream) {
-      if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-        fullResponse += chunk.delta.text;
-        onChunk(chunk.delta.text);
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let fullResponse = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n').filter(line => line.startsWith('data: '));
+
+      for (const line of lines) {
+        const data = line.slice(6);
+        if (data === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+            fullResponse += parsed.delta.text;
+            onChunk(parsed.delta.text);
+          }
+        } catch {}
       }
     }
 
