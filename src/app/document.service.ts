@@ -7,10 +7,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 export class DocumentService {
   
   constructor() {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url
-    ).toString();
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@5.6.205/build/pdf.worker.min.mjs`;
   }
 
   async extractTextFromPdf(file: File): Promise<string> {
